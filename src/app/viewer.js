@@ -102,6 +102,56 @@ export function installTrackpadPinchZoom(
   };
 }
 
+/**
+ * Clamp viewer.resolutionScale so that the canvas dimensions never exceed the
+ * GPU's maximum texture size, preventing GlobeDepth and framebuffer texture
+ * allocation DeveloperErrors on 2K/4K and fullscreen displays (#905).
+ */
+export function clampResolutionToTextureLimits(viewer, targetScale = 1.0) {
+  const maxTextureSize =
+    viewer?.scene?.context?.maximumTextureSize ??
+    Cesium?.ContextLimits?.maximumTextureSize ??
+    0;
+  if (!maxTextureSize || maxTextureSize <= 0) return;
+
+  const canvas = viewer?.canvas;
+  const width =
+    canvas?.clientWidth ||
+    (typeof window !== 'undefined' ? window.innerWidth : 0);
+  const height =
+    canvas?.clientHeight ||
+    (typeof window !== 'undefined' ? window.innerHeight : 0);
+  const maxDim = Math.max(width, height);
+  if (maxDim <= 0) return;
+
+  const maxAllowedScale = maxTextureSize / maxDim;
+  if (maxAllowedScale < targetScale) {
+    viewer.resolutionScale = maxAllowedScale;
+  } else if (viewer.resolutionScale < targetScale) {
+    viewer.resolutionScale = Math.min(targetScale, maxAllowedScale);
+  }
+}
+
+/**
+ * Install a resize and fullscreen listener that continuously guarantees the
+ * drawing buffer fits within the GPU's texture size limit. Returns a disposer.
+ */
+export function installTextureLimitGuard(
+  viewer,
+  { targetScale = 1.0, windowTarget = globalThis.window } = {},
+) {
+  if (!windowTarget?.addEventListener) return () => {};
+  const enforce = () => clampResolutionToTextureLimits(viewer, targetScale);
+  enforce();
+  windowTarget.addEventListener('resize', enforce);
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    windowTarget.removeEventListener('resize', enforce);
+  };
+}
+
 /** Create the standard globe viewer in caller-owned, visible containers. */
 export function createApplicationViewer({ container, creditContainer }) {
   if (!container || !creditContainer)
@@ -134,6 +184,14 @@ export function createApplicationViewer({ container, creditContainer }) {
     viewer.scene.skyAtmosphere.atmosphereLightIntensity = 18;
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
+
+    const uninstallGuard = installTextureLimitGuard(viewer);
+    const originalDestroy = viewer.destroy.bind(viewer);
+    viewer.destroy = () => {
+      uninstallGuard();
+      return originalDestroy();
+    };
+
     return viewer;
   } catch (error) {
     viewer.destroy();

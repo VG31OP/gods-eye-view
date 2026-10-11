@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createApplication } from './application.js';
-import { installTrackpadPinchZoom } from './viewer.js';
+import {
+  installTrackpadPinchZoom,
+  clampResolutionToTextureLimits,
+  installTextureLimitGuard,
+} from './viewer.js';
 
 const phases = ['Scene', 'Controls', 'Data', 'Tools'];
 function fixture(overrides = {}) {
@@ -329,4 +333,69 @@ test('trackpad pinch falls back to the original event when relay construction fa
   assert.equal(event.defaultPrevented, false);
   assert.equal(event.propagationStopped, false);
   assert.equal(f.relayed.length, 0);
+});
+
+test('clampResolutionToTextureLimits constrains resolutionScale on high-res displays (#905)', () => {
+  // Case 1: 2560x1440 screen on a GPU with 2048 maxTextureSize (Issue #905 exact repro)
+  const viewer = {
+    resolutionScale: 1.0,
+    canvas: { clientWidth: 2560, clientHeight: 1440 },
+    scene: { context: { maximumTextureSize: 2048 } },
+  };
+  clampResolutionToTextureLimits(viewer);
+  assert.equal(viewer.resolutionScale, 2048 / 2560);
+  assert.equal(viewer.canvas.clientWidth * viewer.resolutionScale, 2048);
+
+  // Case 2: Display within limit remains at targetScale (1.0)
+  const viewer1080p = {
+    resolutionScale: 1.0,
+    canvas: { clientWidth: 1920, clientHeight: 1080 },
+    scene: { context: { maximumTextureSize: 2048 } },
+  };
+  clampResolutionToTextureLimits(viewer1080p);
+  assert.equal(viewer1080p.resolutionScale, 1.0);
+
+  // Case 3: Resizing smaller restores resolutionScale back to targetScale
+  viewer.canvas.clientWidth = 1920;
+  viewer.canvas.clientHeight = 1080;
+  clampResolutionToTextureLimits(viewer, 1.0);
+  assert.equal(viewer.resolutionScale, 1.0);
+
+  // Case 4: Safe with incomplete viewer or missing limits
+  clampResolutionToTextureLimits(null);
+  clampResolutionToTextureLimits({});
+  clampResolutionToTextureLimits({
+    scene: { context: { maximumTextureSize: 0 } },
+  });
+});
+
+test('installTextureLimitGuard registers and cleans up window resize listeners', () => {
+  let resizeHandler = null;
+  const mockWindow = {
+    addEventListener(type, handler) {
+      if (type === 'resize') resizeHandler = handler;
+    },
+    removeEventListener(type, handler) {
+      if (type === 'resize' && resizeHandler === handler) resizeHandler = null;
+    },
+  };
+  const viewer = {
+    resolutionScale: 1.0,
+    canvas: { clientWidth: 2560, clientHeight: 1440 },
+    scene: { context: { maximumTextureSize: 2048 } },
+  };
+  const uninstall = installTextureLimitGuard(viewer, {
+    windowTarget: mockWindow,
+  });
+  assert.equal(viewer.resolutionScale, 2048 / 2560);
+  assert.equal(typeof resizeHandler, 'function');
+
+  // Changing canvas size triggers recalculation on resize event
+  viewer.canvas.clientWidth = 3840;
+  resizeHandler();
+  assert.equal(viewer.resolutionScale, 2048 / 3840);
+
+  // Disposing uninstalls the listener
+  uninstall();
+  assert.equal(resizeHandler, null);
 });
