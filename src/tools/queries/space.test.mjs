@@ -30,6 +30,50 @@ test('TLE text parses into named entries with catalog numbers', () => {
   assert.equal(tleCatalogNumber('1 xx'), null);
 });
 
+test('a TLE set missing a line does not drop subsequent satellites in the group (#906)', () => {
+  const set = (n) =>
+    `SAT ${n}\n` +
+    `1 ${25544 + n}U 98067A   24001.50000000  .00016717  00000-0  30270-3 0  9994\n` +
+    `2 ${25544 + n}  51.6416 247.4627 0006703 130.5360 325.0288 15.50377579432414\n`;
+  const whole = Array.from({ length: 8 }, (_, n) => set(n)).join('');
+
+  // SAT 1 loses its line 2
+  const missingLine2 = whole.replace(/\n2 25545[^\n]*/, '');
+  const parsedMissingLine2 = parseTleText(missingLine2);
+  assert.equal(parsedMissingLine2.length, 7);
+  assert.deepEqual(
+    parsedMissingLine2.map((e) => e.name),
+    ['SAT 0', 'SAT 2', 'SAT 3', 'SAT 4', 'SAT 5', 'SAT 6', 'SAT 7'],
+  );
+
+  // SAT 1 loses its line 1
+  const missingLine1 = whole.replace(/\n1 25545[^\n]*/, '');
+  const parsedMissingLine1 = parseTleText(missingLine1);
+  assert.equal(parsedMissingLine1.length, 7);
+  assert.deepEqual(
+    parsedMissingLine1.map((e) => e.name),
+    ['SAT 0', 'SAT 2', 'SAT 3', 'SAT 4', 'SAT 5', 'SAT 6', 'SAT 7'],
+  );
+
+  // Mismatched catalog numbers across line 1 and line 2 drops only the corrupt pair
+  const mismatched =
+    'SAT 0\n' +
+    '1 25544U 98067A   24001.50000000  .00016717  00000-0  30270-3 0  9994\n' +
+    '2 99999  51.6416 247.4627 0006703 130.5360 325.0288 15.50377579432414\n' +
+    set(1);
+  const parsedMismatched = parseTleText(mismatched);
+  assert.equal(parsedMismatched.length, 1);
+  assert.equal(parsedMismatched[0].name, 'SAT 1');
+
+  // Two-line TLE without preceding name line defaults name to CATALOG-<noradId>
+  const twoLine =
+    '1 25544U 98067A   24001.50000000  .00016717  00000-0  30270-3 0  9994\n' +
+    '2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.50377579432414\n';
+  const parsedTwoLine = parseTleText(twoLine);
+  assert.equal(parsedTwoLine.length, 1);
+  assert.equal(parsedTwoLine[0].name, 'CATALOG-25544');
+});
+
 test('the next pass defaults to the ISS and reports times, peak and direction', async () => {
   const catalog = composeCatalog({
     tools: coreTools,
