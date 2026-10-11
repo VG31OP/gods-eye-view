@@ -26,7 +26,10 @@ export const BROWSER_CSP = [
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob: https:",
-  "connect-src 'self' blob: data: https: wss: ws:",
+  // Cesium 1.124's Bing provider requests HTTP tiles when the page itself is
+  // served over HTTP (the ordinary local dev/preview shape). Keep the exception
+  // host-scoped rather than allowing arbitrary plaintext connections.
+  "connect-src 'self' blob: data: https: wss: ws: http://ecn.t0.tiles.virtualearth.net http://ecn.t1.tiles.virtualearth.net http://ecn.t2.tiles.virtualearth.net http://ecn.t3.tiles.virtualearth.net",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
   // The same media's players and posts, which load in frames.
