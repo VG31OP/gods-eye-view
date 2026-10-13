@@ -198,6 +198,10 @@ test('the CSP admits only Bing HTTP tile hosts, not arbitrary plaintext connecti
     'http://ecn.t1.tiles.virtualearth.net',
     'http://ecn.t2.tiles.virtualearth.net',
     'http://ecn.t3.tiles.virtualearth.net',
+    'http://ak.dynamic.t0.tiles.virtualearth.net',
+    'http://ak.dynamic.t1.tiles.virtualearth.net',
+    'http://ak.dynamic.t2.tiles.virtualearth.net',
+    'http://ak.dynamic.t3.tiles.virtualearth.net',
   ]) {
     assert.ok(connect.includes(host), host);
   }
