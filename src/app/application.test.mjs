@@ -336,37 +336,65 @@ test('trackpad pinch falls back to the original event when relay construction fa
 });
 
 test('clampResolutionToTextureLimits constrains resolutionScale on high-res displays (#905)', () => {
+  const getLimit = () => 2048;
+
   // Case 1: 2560x1440 screen on a GPU with 2048 maxTextureSize (Issue #905 exact repro)
   const viewer = {
     resolutionScale: 1.0,
     canvas: { clientWidth: 2560, clientHeight: 1440 },
-    scene: { context: { maximumTextureSize: 2048 } },
   };
-  clampResolutionToTextureLimits(viewer);
+  clampResolutionToTextureLimits(viewer, { getLimit });
   assert.equal(viewer.resolutionScale, 2048 / 2560);
   assert.equal(viewer.canvas.clientWidth * viewer.resolutionScale, 2048);
 
-  // Case 2: Display within limit remains at targetScale (1.0)
+  // Case 2: Display within limit remains at requested scale (1.0)
   const viewer1080p = {
     resolutionScale: 1.0,
     canvas: { clientWidth: 1920, clientHeight: 1080 },
-    scene: { context: { maximumTextureSize: 2048 } },
   };
-  clampResolutionToTextureLimits(viewer1080p);
+  clampResolutionToTextureLimits(viewer1080p, { getLimit });
   assert.equal(viewer1080p.resolutionScale, 1.0);
 
-  // Case 3: Resizing smaller restores resolutionScale back to targetScale
+  // Case 3: Resizing smaller restores resolutionScale back to requested scale (1.0)
   viewer.canvas.clientWidth = 1920;
   viewer.canvas.clientHeight = 1080;
-  clampResolutionToTextureLimits(viewer, 1.0);
+  clampResolutionToTextureLimits(viewer, { getLimit });
   assert.equal(viewer.resolutionScale, 1.0);
 
-  // Case 4: Safe with incomplete viewer or missing limits
+  // Case 4: A deliberately lower requested scale (e.g. 0.75 preset) stays put when window shrinks
+  const viewerPreset = {
+    resolutionScale: 0.75,
+    canvas: { clientWidth: 3840, clientHeight: 2160 },
+  };
+  // On 4K with 2048 limit: maxAllowedScale = 2048 / 3840
+  clampResolutionToTextureLimits(viewerPreset, { getLimit });
+  assert.equal(viewerPreset.resolutionScale, 2048 / 3840);
+  // Shrinking window to 1080p restores requested preset 0.75, staying put
+  viewerPreset.canvas.clientWidth = 1920;
+  viewerPreset.canvas.clientHeight = 1080;
+  clampResolutionToTextureLimits(viewerPreset, { getLimit });
+  assert.equal(viewerPreset.resolutionScale, 0.75);
+
+  // Case 5: When useBrowserRecommendedResolution is false, accounts for devicePixelRatio
+  const viewerRetina = {
+    resolutionScale: 1.0,
+    useBrowserRecommendedResolution: false,
+    canvas: { clientWidth: 1600, clientHeight: 900 },
+  };
+  clampResolutionToTextureLimits(viewerRetina, {
+    getLimit,
+    getPixelRatio: () => 2.0,
+  });
+  // 1600 * 2.0 = 3200 > 2048 => 2048 / 3200 = 0.64
+  assert.equal(viewerRetina.resolutionScale, 2048 / 3200);
+
+  // Case 6: Safe with incomplete viewer or missing limits
   clampResolutionToTextureLimits(null);
   clampResolutionToTextureLimits({});
-  clampResolutionToTextureLimits({
-    scene: { context: { maximumTextureSize: 0 } },
-  });
+  clampResolutionToTextureLimits(
+    { canvas: { clientWidth: 100 } },
+    { getLimit: () => 0 },
+  );
 });
 
 test('installTextureLimitGuard registers and cleans up window resize listeners', () => {
@@ -379,23 +407,41 @@ test('installTextureLimitGuard registers and cleans up window resize listeners',
       if (type === 'resize' && resizeHandler === handler) resizeHandler = null;
     },
   };
+  let preRenderHandler = null;
   const viewer = {
     resolutionScale: 1.0,
     canvas: { clientWidth: 2560, clientHeight: 1440 },
-    scene: { context: { maximumTextureSize: 2048 } },
+    scene: {
+      preRender: {
+        addEventListener(handler) {
+          preRenderHandler = handler;
+        },
+        removeEventListener(handler) {
+          if (preRenderHandler === handler) preRenderHandler = null;
+        },
+      },
+    },
   };
   const uninstall = installTextureLimitGuard(viewer, {
+    getLimit: () => 2048,
     windowTarget: mockWindow,
   });
   assert.equal(viewer.resolutionScale, 2048 / 2560);
   assert.equal(typeof resizeHandler, 'function');
+  assert.equal(typeof preRenderHandler, 'function');
 
   // Changing canvas size triggers recalculation on resize event
   viewer.canvas.clientWidth = 3840;
   resizeHandler();
   assert.equal(viewer.resolutionScale, 2048 / 3840);
 
-  // Disposing uninstalls the listener
+  // Pre-render also recalculates
+  viewer.canvas.clientWidth = 2560;
+  preRenderHandler();
+  assert.equal(viewer.resolutionScale, 2048 / 2560);
+
+  // Disposing uninstalls listeners
   uninstall();
   assert.equal(resizeHandler, null);
+  assert.equal(preRenderHandler, null);
 });

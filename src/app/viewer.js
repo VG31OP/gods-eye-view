@@ -106,13 +106,21 @@ export function installTrackpadPinchZoom(
  * Clamp viewer.resolutionScale so that the canvas dimensions never exceed the
  * GPU's maximum texture size, preventing GlobeDepth and framebuffer texture
  * allocation DeveloperErrors on 2K/4K and fullscreen displays (#905).
+ *
+ * Keeps requested scale and hardware ceiling separate (credit #940): applies
+ * min(requested, hardware ceiling) and restores the requested scale when the
+ * viewport shrinks.
  */
-export function clampResolutionToTextureLimits(viewer, targetScale = 1.0) {
-  const maxTextureSize =
-    viewer?.scene?.context?.maximumTextureSize ??
-    Cesium?.ContextLimits?.maximumTextureSize ??
-    0;
-  if (!maxTextureSize || maxTextureSize <= 0) return;
+export function clampResolutionToTextureLimits(
+  viewer,
+  {
+    getLimit = () => Cesium?.ContextLimits?.maximumTextureSize ?? 0,
+    getPixelRatio = () =>
+      (typeof window !== 'undefined' && window.devicePixelRatio) || 1.0,
+  } = {},
+) {
+  const maxTextureSize = getLimit();
+  if (!Number.isFinite(maxTextureSize) || maxTextureSize <= 0) return;
 
   const canvas = viewer?.canvas;
   const width =
@@ -124,12 +132,24 @@ export function clampResolutionToTextureLimits(viewer, targetScale = 1.0) {
   const maxDim = Math.max(width, height);
   if (maxDim <= 0) return;
 
-  const maxAllowedScale = maxTextureSize / maxDim;
-  if (maxAllowedScale < targetScale) {
-    viewer.resolutionScale = maxAllowedScale;
-  } else if (viewer.resolutionScale < targetScale) {
-    viewer.resolutionScale = Math.min(targetScale, maxAllowedScale);
+  const useBrowserRecommended = viewer?.useBrowserRecommendedResolution ?? true;
+  const pixelRatio = useBrowserRecommended ? 1.0 : getPixelRatio();
+  const effectiveMaxDim = maxDim * (pixelRatio > 0 ? pixelRatio : 1.0);
+  const maxAllowedScale = maxTextureSize / effectiveMaxDim;
+
+  if (viewer._requestedResolutionScale === undefined) {
+    viewer._requestedResolutionScale = viewer.resolutionScale ?? 1.0;
+  } else if (
+    viewer.resolutionScale !== viewer._appliedResolutionScale &&
+    viewer.resolutionScale !== undefined
+  ) {
+    viewer._requestedResolutionScale = viewer.resolutionScale;
   }
+
+  const requested = viewer._requestedResolutionScale;
+  const clamped = Math.min(requested, maxAllowedScale);
+  viewer._appliedResolutionScale = clamped;
+  viewer.resolutionScale = clamped;
 }
 
 /**
@@ -138,17 +158,42 @@ export function clampResolutionToTextureLimits(viewer, targetScale = 1.0) {
  */
 export function installTextureLimitGuard(
   viewer,
-  { targetScale = 1.0, windowTarget = globalThis.window } = {},
+  {
+    getLimit = () => Cesium?.ContextLimits?.maximumTextureSize ?? 0,
+    getPixelRatio = () =>
+      (typeof window !== 'undefined' && window.devicePixelRatio) || 1.0,
+    windowTarget = globalThis.window,
+  } = {},
 ) {
-  if (!windowTarget?.addEventListener) return () => {};
-  const enforce = () => clampResolutionToTextureLimits(viewer, targetScale);
+  const enforce = () =>
+    clampResolutionToTextureLimits(viewer, { getLimit, getPixelRatio });
   enforce();
-  windowTarget.addEventListener('resize', enforce);
+
+  let unlistenResize = null;
+  if (windowTarget?.addEventListener) {
+    windowTarget.addEventListener('resize', enforce);
+    unlistenResize = () => windowTarget.removeEventListener('resize', enforce);
+  }
+
+  let unlistenPreRender = null;
+  if (viewer?.scene?.preRender?.addEventListener) {
+    const preRenderListener = () => enforce();
+    viewer.scene.preRender.addEventListener(preRenderListener);
+    unlistenPreRender = () => {
+      try {
+        viewer.scene.preRender.removeEventListener(preRenderListener);
+      } catch {
+        /* ignore */
+      }
+    };
+  }
+
   let active = true;
   return () => {
     if (!active) return;
     active = false;
-    windowTarget.removeEventListener('resize', enforce);
+    unlistenResize?.();
+    unlistenPreRender?.();
   };
 }
 
