@@ -182,7 +182,6 @@ test('only embed-mode documents may be framed, and only by the allowed ancestors
     assert.equal(plugin.configurePreviewServer, undefined);
   }
 });
-
 test('the CSP admits only Bing HTTP tile hosts, not arbitrary plaintext connections', () => {
   const connect = BROWSER_CSP.split(';')
     .map((part) => part.trim())
@@ -209,7 +208,7 @@ test('the CSP admits only Bing HTTP tile hosts, not arbitrary plaintext connecti
   assert.ok(!connect.some((source) => source.includes('*')));
 });
 
-test('the CSP admits the event media embeds, and no other script origin', async () => {
+test('the CSP admits the event media embeds and the Maps JavaScript API, and no other script origin', async () => {
   const { embeddedMediaFrameUrl, resolveEmbeddedMediaSource } =
     await import('../../src/data/bhoteKoshiEmbeddedMedia.js');
   const directive = (name) =>
@@ -227,7 +226,8 @@ test('the CSP admits the event media embeds, and no other script origin', async 
     'https://platform.twitter.com',
   ])
     assert.ok(scripts.includes(origin), origin);
-  // Only those three, and never a wildcard or a scheme.
+  // Only those three and Google Street View's Maps JavaScript API, never a
+  // wildcard or a scheme.
   assert.deepEqual(
     scripts.filter(
       (source) => source.startsWith('http') || source === 'https:',
@@ -236,6 +236,7 @@ test('the CSP admits the event media embeds, and no other script origin', async 
       'https://www.youtube.com',
       'https://connect.facebook.net',
       'https://platform.twitter.com',
+      'https://maps.googleapis.com',
     ],
   );
   assert.ok(!scripts.some((source) => source.includes('*')));
