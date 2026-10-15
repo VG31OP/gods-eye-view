@@ -59,8 +59,32 @@ export function parseTrustedProxyIps(envValue) {
   return ips;
 }
 
+function ipv4ToUint32(ip) {
+  const parts = String(ip || '')
+    .split('.')
+    .map(Number);
+  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255))
+    return null;
+  return (
+    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+  );
+}
+
+function matchIpv4Cidr(ip, cidr) {
+  const [base, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+  if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  const ipNum = ipv4ToUint32(ip);
+  const baseNum = ipv4ToUint32(base);
+  if (ipNum === null || baseNum === null) return false;
+  if (prefix === 0) return true;
+  const mask = (~0 << (32 - prefix)) >>> 0;
+  return (ipNum & mask) === (baseNum & mask);
+}
+
 /**
  * Determine whether a remote socket address is in the trusted proxy allowlist.
+ * Supports exact IP matches (IPv4, IPv6) and IPv4 CIDR blocks (e.g. 172.16.0.0/12).
  * @param {string} remoteAddress
  * @param {Set<string>} trustedIps
  * @returns {boolean}
@@ -69,9 +93,16 @@ export function isTrustedProxyPeer(remoteAddress, trustedIps) {
   if (!remoteAddress || !(trustedIps instanceof Set) || trustedIps.size === 0) {
     return false;
   }
-  const raw = String(remoteAddress).trim().toLowerCase();
+  let raw = String(remoteAddress).trim().toLowerCase();
+  if (raw.startsWith('::ffff:')) {
+    raw = raw.slice(7);
+  }
   if (trustedIps.has(raw)) return true;
-  if (raw.startsWith('::ffff:') && trustedIps.has(raw.slice(7))) return true;
+  for (const item of trustedIps) {
+    if (item.includes('/') && matchIpv4Cidr(raw, item)) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -93,6 +124,10 @@ export function hasProxySignals(headers = {}, { isTrustedProxy = false } = {}) {
       'cf-ray',
     ];
     if (prohibited.some((name) => String(headers[name] || '').trim() !== '')) {
+      return true;
+    }
+    const xff = String(headers['x-forwarded-for'] || '').trim();
+    if (xff && xff.includes(',')) {
       return true;
     }
     const proto = String(headers['x-forwarded-proto'] || '')

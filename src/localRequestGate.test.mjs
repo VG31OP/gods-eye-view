@@ -52,12 +52,29 @@ test('Sec-Fetch-Site same-site (cross-origin sibling) is refused', () => {
 });
 
 test('a reverse-proxy signal header is refused', () => {
-  for (const header of ['x-forwarded-for', 'forwarded', 'via', 'cf-connecting-ip', 'cf-ray', 'x-real-ip', 'x-forwarded-host', 'x-forwarded-port', 'x-forwarded-proto']) {
-    const r = admitSameSiteRequest({ ...same, proxyHeaders: { [header]: 'anything' } });
+  for (const header of [
+    'x-forwarded-for',
+    'forwarded',
+    'via',
+    'cf-connecting-ip',
+    'cf-ray',
+    'x-real-ip',
+    'x-forwarded-host',
+    'x-forwarded-port',
+    'x-forwarded-proto',
+  ]) {
+    const r = admitSameSiteRequest({
+      ...same,
+      proxyHeaders: { [header]: 'anything' },
+    });
     assert.equal(r.ok, false, `${header} present → refused`);
   }
   // An empty forwarding header is not a proxy signal.
-  assert.equal(admitSameSiteRequest({ ...same, proxyHeaders: { 'x-forwarded-for': '' } }).ok, true);
+  assert.equal(
+    admitSameSiteRequest({ ...same, proxyHeaders: { 'x-forwarded-for': '' } })
+      .ok,
+    true,
+  );
 });
 
 test('same-origin Origin with Sec-Fetch-Site same-origin is admitted', () => {
@@ -94,22 +111,49 @@ test('a LAN remote address is irrelevant: the function takes no remoteAddress', 
 });
 
 test('a cross-port or cross-scheme Origin against the same Host is refused', () => {
-  assert.equal(admitSameSiteRequest({ ...same, origin: 'http://localhost:4174' }).ok, false, 'cross-port');
-  assert.equal(admitSameSiteRequest({ ...same, origin: 'https://localhost:4173' }).ok, false, 'cross-scheme');
-  assert.equal(admitSameSiteRequest({ ...same, origin: 'http://127.0.0.1:4173' }).ok, false, 'different loopback host');
+  assert.equal(
+    admitSameSiteRequest({ ...same, origin: 'http://localhost:4174' }).ok,
+    false,
+    'cross-port',
+  );
+  assert.equal(
+    admitSameSiteRequest({ ...same, origin: 'https://localhost:4173' }).ok,
+    false,
+    'cross-scheme',
+  );
+  assert.equal(
+    admitSameSiteRequest({ ...same, origin: 'http://127.0.0.1:4173' }).ok,
+    false,
+    'different loopback host',
+  );
 });
 
 test('an unparseable Origin is refused', () => {
-  assert.equal(admitSameSiteRequest({ ...same, origin: 'not a url' }).ok, false);
+  assert.equal(
+    admitSameSiteRequest({ ...same, origin: 'not a url' }).ok,
+    false,
+  );
 });
 
 test('a missing Host with a present Origin is refused (no authority to match)', () => {
-  assert.equal(admitSameSiteRequest({ ...same, hostHeader: '' }).ok, false, 'empty Host → null authority');
-  assert.equal(admitSameSiteRequest({ ...same, hostHeader: undefined }).ok, false, 'absent Host → null authority');
+  assert.equal(
+    admitSameSiteRequest({ ...same, hostHeader: '' }).ok,
+    false,
+    'empty Host → null authority',
+  );
+  assert.equal(
+    admitSameSiteRequest({ ...same, hostHeader: undefined }).ok,
+    false,
+    'absent Host → null authority',
+  );
 });
 
 test('a foreign Host is refused when an Origin is present', () => {
-  assert.equal(admitSameSiteRequest({ ...same, hostHeader: 'evil.example:4173' }).ok, false, 'foreign Host does not match local Origin');
+  assert.equal(
+    admitSameSiteRequest({ ...same, hostHeader: 'evil.example:4173' }).ok,
+    false,
+    'foreign Host does not match local Origin',
+  );
 });
 
 test('parseTrustedProxyIps parses delimited IPs and handles IPv4-mapped IPv6', () => {
@@ -118,7 +162,9 @@ test('parseTrustedProxyIps parses delimited IPs and handles IPv4-mapped IPv6', (
   assert.equal(parseTrustedProxyIps(undefined).size, 0);
   assert.equal(parseTrustedProxyIps('   ').size, 0);
 
-  const parsed = parseTrustedProxyIps('127.0.0.1, 10.0.0.1  ::1, ::ffff:192.168.1.5');
+  const parsed = parseTrustedProxyIps(
+    '127.0.0.1, 10.0.0.1  ::1, ::ffff:192.168.1.5',
+  );
   assert.equal(parsed.has('127.0.0.1'), true);
   assert.equal(parsed.has('10.0.0.1'), true);
   assert.equal(parsed.has('::1'), true);
@@ -126,32 +172,92 @@ test('parseTrustedProxyIps parses delimited IPs and handles IPv4-mapped IPv6', (
   assert.equal(parsed.has('192.168.1.5'), true);
 });
 
-test('isTrustedProxyPeer matches IPv4, IPv6, and IPv4-mapped IPv6 addresses', () => {
-  const allowlist = parseTrustedProxyIps('127.0.0.1, ::1');
+test('isTrustedProxyPeer matches IPv4, IPv6, IPv4-mapped IPv6, and IPv4 CIDR blocks', () => {
+  const allowlist = parseTrustedProxyIps(
+    '127.0.0.1, ::1, 172.16.0.0/12, 10.0.0.0/8',
+  );
   assert.equal(isTrustedProxyPeer('127.0.0.1', allowlist), true);
   assert.equal(isTrustedProxyPeer('::ffff:127.0.0.1', allowlist), true);
   assert.equal(isTrustedProxyPeer('::1', allowlist), true);
-  assert.equal(isTrustedProxyPeer('10.0.0.1', allowlist), false);
+  assert.equal(isTrustedProxyPeer('172.17.0.2', allowlist), true);
+  assert.equal(isTrustedProxyPeer('::ffff:172.17.0.2', allowlist), true);
+  assert.equal(isTrustedProxyPeer('10.254.1.99', allowlist), true);
+  assert.equal(isTrustedProxyPeer('192.168.1.5', allowlist), false);
+  assert.equal(isTrustedProxyPeer('172.32.0.1', allowlist), false);
   assert.equal(isTrustedProxyPeer(undefined, allowlist), false);
   assert.equal(isTrustedProxyPeer('127.0.0.1', new Set()), false);
 });
 
 test('hasProxySignals respects isTrustedProxy boundary', () => {
   // Without trusted proxy: all proxy signals rejected
-  assert.equal(hasProxySignals({ 'x-forwarded-proto': 'https' }, { isTrustedProxy: false }), true);
-  assert.equal(hasProxySignals({ 'x-forwarded-for': '1.2.3.4' }, { isTrustedProxy: false }), true);
+  assert.equal(
+    hasProxySignals(
+      { 'x-forwarded-proto': 'https' },
+      { isTrustedProxy: false },
+    ),
+    true,
+  );
+  assert.equal(
+    hasProxySignals(
+      { 'x-forwarded-for': '1.2.3.4' },
+      { isTrustedProxy: false },
+    ),
+    true,
+  );
 
   // With trusted proxy: single proto and single hop client IP allowed
-  assert.equal(hasProxySignals({ 'x-forwarded-proto': 'https', 'x-forwarded-for': '1.2.3.4' }, { isTrustedProxy: true }), false);
-  assert.equal(hasProxySignals({ 'x-forwarded-proto': 'http' }, { isTrustedProxy: true }), false);
+  assert.equal(
+    hasProxySignals(
+      { 'x-forwarded-proto': 'https', 'x-forwarded-for': '1.2.3.4' },
+      { isTrustedProxy: true },
+    ),
+    false,
+  );
+  assert.equal(
+    hasProxySignals({ 'x-forwarded-proto': 'http' }, { isTrustedProxy: true }),
+    false,
+  );
 
   // With trusted proxy: multi-hop / malformed proto rejected
-  assert.equal(hasProxySignals({ 'x-forwarded-proto': 'https, http' }, { isTrustedProxy: true }), true);
-  assert.equal(hasProxySignals({ 'x-forwarded-proto': 'ftp' }, { isTrustedProxy: true }), true);
+  assert.equal(
+    hasProxySignals(
+      { 'x-forwarded-proto': 'https, http' },
+      { isTrustedProxy: true },
+    ),
+    true,
+  );
+  assert.equal(
+    hasProxySignals({ 'x-forwarded-proto': 'ftp' }, { isTrustedProxy: true }),
+    true,
+  );
+
+  // With trusted proxy: multi-hop / comma-separated X-Forwarded-For rejected
+  assert.equal(
+    hasProxySignals(
+      {
+        'x-forwarded-proto': 'https',
+        'x-forwarded-for': '6.6.6.6, 153.66.23.223',
+      },
+      { isTrustedProxy: true },
+    ),
+    true,
+  );
 
   // With trusted proxy: foreign proxy headers still rejected
-  for (const header of ['forwarded', 'via', 'cf-connecting-ip', 'cf-ray', 'x-real-ip', 'x-forwarded-host', 'x-forwarded-port']) {
-    assert.equal(hasProxySignals({ [header]: 'val' }, { isTrustedProxy: true }), true, `${header} must be rejected`);
+  for (const header of [
+    'forwarded',
+    'via',
+    'cf-connecting-ip',
+    'cf-ray',
+    'x-real-ip',
+    'x-forwarded-host',
+    'x-forwarded-port',
+  ]) {
+    assert.equal(
+      hasProxySignals({ [header]: 'val' }, { isTrustedProxy: true }),
+      true,
+      `${header} must be rejected`,
+    );
   }
 });
 
@@ -245,4 +351,3 @@ test('Acceptance Case 7: Credential-panel proxied request remains refused', () =
   assert.equal(r.status, 403);
   assert.equal(r.error, 'Provider Settings does not answer proxied requests');
 });
-
