@@ -1,11 +1,5 @@
 # Changelog
 
-- Clamp `viewer.resolutionScale` to the WebGL context's maximum texture size
-  (`Cesium.ContextLimits.maximumTextureSize`) on high-resolution (2K/4K) and fullscreen
-  displays, preventing GlobeDepth and framebuffer texture allocation crashes.
-  Preserves requested scaling when the viewport shrinks. Thanks to
-  [xiehuanyi](https://github.com/xiehuanyi) (#940) for separating requested and effective scale.
-
 - The tracked-aircraft descriptor now publishes `verticalRateMps`, on both the
   civil and military layers, so a consumer reading `getTrackedInfo()` no longer
   has to reach past it into the raw poll record for climb/descent. Reported,
