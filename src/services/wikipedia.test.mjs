@@ -84,24 +84,37 @@ test('fetchWikipediaSummary parses article summary and handles 404', async () =>
         title: 'Eiffel Tower',
         displaytitle: '<i>Eiffel Tower</i>',
         description: 'Wrought-iron lattice tower in Paris, France',
-        extract: 'The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris...',
+        extract:
+          'The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris...',
         thumbnail: { source: 'https://upload.wikimedia.org/eiffel.jpg' },
-        content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Eiffel_Tower' } },
+        content_urls: {
+          desktop: { page: 'https://en.wikipedia.org/wiki/Eiffel_Tower' },
+        },
         coordinates: { lat: 48.8584, lon: 2.2945 },
       }),
     };
   };
 
-  const summary = await fetchWikipediaSummary('Eiffel Tower', { fetchImpl: mockFetch });
+  const summary = await fetchWikipediaSummary('Eiffel Tower', {
+    fetchImpl: mockFetch,
+  });
   assert.ok(summary);
   assert.equal(summary.pageId, 6789);
   assert.equal(summary.title, 'Eiffel Tower');
-  assert.equal(summary.description, 'Wrought-iron lattice tower in Paris, France');
+  assert.equal(
+    summary.description,
+    'Wrought-iron lattice tower in Paris, France',
+  );
   assert.equal(summary.thumbnail, 'https://upload.wikimedia.org/eiffel.jpg');
   assert.equal(summary.pageUrl, 'https://en.wikipedia.org/wiki/Eiffel_Tower');
-  assert.deepEqual(summary.coordinates, { latitude: 48.8584, longitude: 2.2945 });
+  assert.deepEqual(summary.coordinates, {
+    latitude: 48.8584,
+    longitude: 2.2945,
+  });
 
-  const missing = await fetchWikipediaSummary('Unknown_Topic', { fetchImpl: mockFetch });
+  const missing = await fetchWikipediaSummary('Unknown_Topic', {
+    fetchImpl: mockFetch,
+  });
   assert.equal(missing, null);
 });
 
@@ -115,7 +128,8 @@ test('searchWikipedia returns stripped snippets and titles', async () => {
           {
             pageid: 101,
             title: 'NORAD',
-            snippet: 'North American <span class="searchmatch">Aerospace</span> Defense Command',
+            snippet:
+              'North American <span class="searchmatch">Aerospace</span> Defense Command',
             wordcount: 4200,
           },
         ],
@@ -123,7 +137,10 @@ test('searchWikipedia returns stripped snippets and titles', async () => {
     }),
   });
 
-  const hits = await searchWikipedia('NORAD', { limit: 3, fetchImpl: mockFetch });
+  const hits = await searchWikipedia('NORAD', {
+    limit: 3,
+    fetchImpl: mockFetch,
+  });
   assert.equal(hits.length, 1);
   assert.equal(hits[0].pageId, 101);
   assert.equal(hits[0].title, 'NORAD');
@@ -139,7 +156,13 @@ test('fetchWikipediaBrief synthesizes coordinate and query intelligence', async 
         json: async () => ({
           query: {
             geosearch: [
-              { pageid: 1, title: 'Austin Landmark', lat: 30.2, lon: -97.7, dist: 100 },
+              {
+                pageid: 1,
+                title: 'Austin Landmark',
+                lat: 30.2,
+                lon: -97.7,
+                dist: 100,
+              },
             ],
           },
         }),

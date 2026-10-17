@@ -7,8 +7,10 @@ function createMockViewer() {
   return {
     camera: {
       positionCartographic: { height: 1000 },
-      moveForward: (d) => cameraCalls.push({ action: 'moveForward', distance: d }),
-      moveBackward: (d) => cameraCalls.push({ action: 'moveBackward', distance: d }),
+      moveForward: (d) =>
+        cameraCalls.push({ action: 'moveForward', distance: d }),
+      moveBackward: (d) =>
+        cameraCalls.push({ action: 'moveBackward', distance: d }),
       moveLeft: (d) => cameraCalls.push({ action: 'moveLeft', distance: d }),
       moveRight: (d) => cameraCalls.push({ action: 'moveRight', distance: d }),
       lookLeft: (a) => cameraCalls.push({ action: 'lookLeft', angle: a }),
@@ -110,7 +112,12 @@ test('triggers zoom in and zoom out', () => {
     index: 0,
     axes: [0, 0, 0, 0],
     buttons: [
-      null, null, null, null, null, null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       { value: 0.8, pressed: true }, // LT: zoom out
       { value: 0.0, pressed: false }, // RT
     ],
@@ -148,7 +155,7 @@ test('face buttons dispatch edge-triggered actions once per press', () => {
     buttons: [
       { pressed: true, value: 1 }, // Button 0: toggleHud
       { pressed: false, value: 0 },
-      { pressed: true, value: 1 },  // Button 2: toggleOrbit
+      { pressed: true, value: 1 }, // Button 2: toggleOrbit
     ],
   };
 
@@ -186,14 +193,20 @@ test('connect and disconnect events update controller state and release holds', 
   const releases = [];
   const listeners = {};
   const mockWindow = {
-    addEventListener: (type, fn) => { listeners[type] = fn; },
-    removeEventListener: (type, fn) => { delete listeners[type]; },
+    addEventListener: (type, fn) => {
+      listeners[type] = fn;
+    },
+    removeEventListener: (type, fn) => {
+      delete listeners[type];
+    },
   };
 
   const nav = createGamepadNavigation({
     viewer,
     windowRef: mockWindow,
-    navigatorRef: { getGamepads: () => [{ index: 2, id: 'Wireless Controller' }] },
+    navigatorRef: {
+      getGamepads: () => [{ index: 2, id: 'Wireless Controller' }],
+    },
     releaseRender: (id) => releases.push(id),
   });
 

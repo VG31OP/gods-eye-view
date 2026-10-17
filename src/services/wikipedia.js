@@ -4,6 +4,13 @@
  * Free, keyless, CORS-enabled endpoints.
  */
 
+const WIKIPEDIA_USER_AGENT =
+  'GodsEyeView/1.0 (https://github.com/bilawalsidhu/gods-eye-view; contact@godseyeview.org)';
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const nearbyCache = new Map();
+const summaryCache = new Map();
+
 function sanitizeCoordinate(value, min, max, label) {
   const num = Number(value);
   if (!Number.isFinite(num) || num < min || num > max) {
@@ -42,6 +49,12 @@ export async function fetchWikipediaNearby({
     Math.max(1, Math.round(Number(limit) || 10)),
   );
 
+  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)},${clampedRadius},${clampedLimit}`;
+  const cached = nearbyCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const params = new URLSearchParams({
     action: 'query',
     list: 'geosearch',
@@ -56,7 +69,10 @@ export async function fetchWikipediaNearby({
     `https://en.wikipedia.org/w/api.php?${params}`,
     {
       signal,
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+      },
     },
   );
 
@@ -93,10 +109,19 @@ export async function fetchWikipediaSummary(
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return null;
 
+  const cacheKey = cleanTitle.toLowerCase();
+  const cached = summaryCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTitle.replace(/ /g, '_'))}`;
   const response = await fetchImpl(endpoint, {
     signal,
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+    },
   });
 
   if (response.status === 404) return null;
@@ -105,7 +130,7 @@ export async function fetchWikipediaSummary(
   }
 
   const data = await response.json();
-  return {
+  const summary = {
     pageId: data.pageid ?? null,
     title: data.title || cleanTitle,
     displayTitle: data.displaytitle || cleanTitle,
@@ -119,6 +144,8 @@ export async function fetchWikipediaSummary(
       ? { latitude: data.coordinates.lat, longitude: data.coordinates.lon }
       : null,
   };
+  summaryCache.set(cacheKey, { data: summary, timestamp: Date.now() });
+  return summary;
 }
 
 /**
@@ -154,7 +181,10 @@ export async function searchWikipedia(
     `https://en.wikipedia.org/w/api.php?${params}`,
     {
       signal,
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+      },
     },
   );
 

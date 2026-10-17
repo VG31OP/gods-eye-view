@@ -6,6 +6,8 @@ import {
 import { bindDisplayControls } from './displayControls.js';
 import { canonicalizeDensity } from '../data/detectionPolicy.js';
 
+const noop = () => {};
+
 /** Own keyboard/display event subscriptions; settings remain with their state owners. */
 export class DisplayBindings {
   constructor({
@@ -98,7 +100,18 @@ export class DisplayBindings {
     this._gamepadNavigation?.destroy();
     this._gamepadNavigation = createGamepadNavigation({
       viewer: this.viewer,
-      actions,
+      actions: {
+        ...actions,
+        getStyle: () => this.readState?.()?.style ?? null,
+      },
+      holdRender:
+        this.services?.holdContinuousRender ??
+        this.services?.render?.holdContinuousRender ??
+        noop,
+      releaseRender:
+        this.services?.releaseContinuousRender ??
+        this.services?.render?.releaseContinuousRender ??
+        noop,
     });
 
     this._displayControls?.destroy();

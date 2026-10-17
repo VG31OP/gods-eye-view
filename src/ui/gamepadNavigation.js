@@ -1,3 +1,5 @@
+import { STYLE_KEYS } from './applicationShortcuts.js';
+
 const noop = () => {};
 
 const DEFAULT_DEADZONE = 0.15;
@@ -5,15 +7,7 @@ const DEFAULT_ROTATE_SPEED = 1.4; // radians/sec
 const DEFAULT_MOVE_FACTOR = 0.8; // scaled by altitude
 const DEFAULT_ZOOM_FACTOR = 1.0; // scaled by altitude
 
-const STYLES = [
-  'normal',
-  'retro',
-  'surveillance',
-  'thermal',
-  'anime',
-  'noir',
-  'snow',
-];
+const STYLES = Object.values(STYLE_KEYS);
 
 function applyDeadzone(value, deadzone) {
   if (Math.abs(value) <= deadzone) return 0;
@@ -128,8 +122,13 @@ export function createGamepadNavigation({
       case 0: // Button A / Cross: Toggle HUD
         actions.toggleHud?.();
         break;
-      case 1: // Button B / Circle: Clean View / Cancel Flight
-        if (typeof actions.toggleCleanView === 'function') {
+      case 1: // Button B / Circle: Cancel Flight (if active) / Clean View
+        if (
+          (viewer?.camera?._currentFlight || viewer?.camera?._flight) &&
+          typeof viewer?.camera?.cancelFlight === 'function'
+        ) {
+          viewer.camera.cancelFlight();
+        } else if (typeof actions.toggleCleanView === 'function') {
           actions.toggleCleanView();
         } else if (typeof viewer?.camera?.cancelFlight === 'function') {
           viewer.camera.cancelFlight();
@@ -142,6 +141,11 @@ export function createGamepadNavigation({
         if (typeof actions.cycleStyle === 'function') {
           actions.cycleStyle();
         } else if (typeof actions.setStyle === 'function') {
+          if (typeof actions.getStyle === 'function') {
+            const current = actions.getStyle();
+            const idx = STYLES.indexOf(current);
+            if (idx !== -1) currentStyleIndex = idx;
+          }
           currentStyleIndex = (currentStyleIndex + 1) % STYLES.length;
           actions.setStyle(STYLES[currentStyleIndex]);
         }
@@ -233,6 +237,7 @@ export function createGamepadNavigation({
         isMoving = true;
         holdRender('gamepad-navigation');
       }
+      viewer?.scene?.requestRender?.();
 
       // Height-scaled motion rates
       const height = camera.positionCartographic?.height
@@ -269,9 +274,12 @@ export function createGamepadNavigation({
     }
   }
 
-  let removePreRenderListener = null;
-  if (viewer?.scene?.preRender?.addEventListener) {
-    removePreRenderListener = viewer.scene.preRender.addEventListener(() => {
+  // Hook scene.preUpdate (or fallback to preRender) so stick input is evaluated
+  // continuously even when Cesium is idling in requestRenderMode (#1000, #1010).
+  let removeTickListener = null;
+  const tickTarget = viewer?.scene?.preUpdate ?? viewer?.scene?.preRender;
+  if (tickTarget?.addEventListener) {
+    removeTickListener = tickTarget.addEventListener(() => {
       poll();
     });
   }
@@ -291,12 +299,10 @@ export function createGamepadNavigation({
         windowRef.removeEventListener('gamepadconnected', onConnected);
         windowRef.removeEventListener('gamepaddisconnected', onDisconnected);
       }
-      if (typeof removePreRenderListener === 'function') {
-        removePreRenderListener();
-      } else if (removePreRenderListener) {
-        viewer?.scene?.preRender?.removeEventListener?.(
-          removePreRenderListener,
-        );
+      if (typeof removeTickListener === 'function') {
+        removeTickListener();
+      } else if (removeTickListener) {
+        tickTarget?.removeEventListener?.(removeTickListener);
       }
       if (isMoving) {
         isMoving = false;
