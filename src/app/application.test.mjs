@@ -6,6 +6,7 @@ import {
   installTrackpadPinchZoom,
   clampResolutionToTextureLimits,
   installTextureLimitGuard,
+  setRequestedResolutionScale,
 } from './viewer.js';
 
 const phases = ['Scene', 'Controls', 'Data', 'Tools'];
@@ -444,4 +445,30 @@ test('installTextureLimitGuard registers and cleans up window resize listeners',
   uninstall();
   assert.equal(resizeHandler, null);
   assert.equal(preRenderHandler, null);
+});
+
+test('setRequestedResolutionScale records requested scale and preserves it across resizes (#905, #1017)', () => {
+  const viewer = {
+    resolutionScale: 1.0,
+    canvas: { clientWidth: 2560, clientHeight: 1440 },
+  };
+  const getLimit = () => 2048;
+
+  // At 2560, initial 1.0 clamps to 0.8 (2048 / 2560)
+  clampResolutionToTextureLimits(viewer, { getLimit });
+  assert.equal(viewer.resolutionScale, 2048 / 2560);
+
+  // Explicitly set scale to 0.8 via setRequestedResolutionScale
+  setRequestedResolutionScale(viewer, 0.8, { getLimit });
+  assert.equal(viewer.resolutionScale, 0.8);
+
+  // Shrink the window to 1080p: requested 0.8 stays 0.8 rather than reverting to 1.0
+  viewer.canvas.clientWidth = 1920;
+  viewer.canvas.clientHeight = 1080;
+  clampResolutionToTextureLimits(viewer, { getLimit });
+  assert.equal(viewer.resolutionScale, 0.8);
+
+  // Set scale to 1.0 again
+  setRequestedResolutionScale(viewer, 1.0, { getLimit });
+  assert.equal(viewer.resolutionScale, 1.0);
 });

@@ -153,6 +153,24 @@ export function clampResolutionToTextureLimits(
 }
 
 /**
+ * Explicitly set the requested resolution scale for a viewer.
+ * Records the requested value in `_requestedResolutionScale` and clamps against
+ * texture limits, ensuring custom presets or battery saver scales are preserved
+ * across window resizes (#905, #1017).
+ * @param {object} viewer - Cesium viewer instance
+ * @param {number} scale - Requested resolution scale
+ * @param {object} [options]
+ */
+export function setRequestedResolutionScale(viewer, scale, options) {
+  if (!viewer) return;
+  const num = Number(scale);
+  if (Number.isFinite(num) && num > 0) {
+    viewer._requestedResolutionScale = num;
+  }
+  clampResolutionToTextureLimits(viewer, options);
+}
+
+/**
  * Install a resize and fullscreen listener that continuously guarantees the
  * drawing buffer fits within the GPU's texture size limit. Returns a disposer.
  */
@@ -169,6 +187,11 @@ export function installTextureLimitGuard(
     clampResolutionToTextureLimits(viewer, { getLimit, getPixelRatio });
   enforce();
 
+  if (viewer && typeof viewer.setResolutionScale !== 'function') {
+    viewer.setResolutionScale = (scale) =>
+      setRequestedResolutionScale(viewer, scale, { getLimit, getPixelRatio });
+  }
+
   let unlistenResize = null;
   if (windowTarget?.addEventListener) {
     windowTarget.addEventListener('resize', enforce);
@@ -177,6 +200,7 @@ export function installTextureLimitGuard(
 
   let unlistenPreRender = null;
   if (viewer?.scene?.preRender?.addEventListener) {
+    // Backstop: catches canvas size changes from layout shifts that do not fire window resize
     const preRenderListener = () => enforce();
     viewer.scene.preRender.addEventListener(preRenderListener);
     unlistenPreRender = () => {
