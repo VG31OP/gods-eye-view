@@ -172,6 +172,19 @@ test('parseTrustedProxyIps parses delimited IPs and handles IPv4-mapped IPv6', (
   assert.equal(parsed.has('192.168.1.5'), true);
 });
 
+test('parseTrustedProxyIps fails closed on malformed CIDR tokens and invalid IP strings', () => {
+  const malformed = parseTrustedProxyIps(
+    '0.0.0.0/0oops, 172.16.0.0/12garbage, /24x, 1.2.3/24, 1..3.4/24, 1.2.3.4.0/24, 1.2.3.4x, 10.0.0.0/33, localhost',
+  );
+  assert.equal(malformed.size, 0, 'malformed CIDRs and hostnames must fail closed');
+
+  // Valid /0 and valid /24 are retained
+  const valid = parseTrustedProxyIps('0.0.0.0/0, 192.168.1.0/24, 10.0.0.1');
+  assert.equal(valid.has('0.0.0.0/0'), true);
+  assert.equal(valid.has('192.168.1.0/24'), true);
+  assert.equal(valid.has('10.0.0.1'), true);
+});
+
 test('isTrustedProxyPeer matches IPv4, IPv6, IPv4-mapped IPv6, and IPv4 CIDR blocks', () => {
   const allowlist = parseTrustedProxyIps(
     '127.0.0.1, ::1, 172.16.0.0/12, 10.0.0.0/8',
@@ -186,6 +199,28 @@ test('isTrustedProxyPeer matches IPv4, IPv6, IPv4-mapped IPv6, and IPv4 CIDR blo
   assert.equal(isTrustedProxyPeer('172.32.0.1', allowlist), false);
   assert.equal(isTrustedProxyPeer(undefined, allowlist), false);
   assert.equal(isTrustedProxyPeer('127.0.0.1', new Set()), false);
+});
+
+test('isTrustedProxyPeer fails closed on malformed CIDR allowlist entries and invalid peer addresses', () => {
+  // Direct set with malformed entries (bypassing parser)
+  const badSet = new Set(['0.0.0.0/0oops', '172.16.0.0/12garbage', '/24x', '1.2.3/24']);
+  assert.equal(isTrustedProxyPeer('1.2.3.4', badSet), false);
+  assert.equal(isTrustedProxyPeer('172.16.0.5', badSet), false);
+
+  // Valid /0 matches any valid IPv4 peer
+  const zeroSet = new Set(['0.0.0.0/0']);
+  assert.equal(isTrustedProxyPeer('1.2.3.4', zeroSet), true);
+  assert.equal(isTrustedProxyPeer('192.168.1.1', zeroSet), true);
+
+  // Valid /24 matches subnet and rejects outside
+  const subnetSet = new Set(['192.168.1.0/24']);
+  assert.equal(isTrustedProxyPeer('192.168.1.5', subnetSet), true);
+  assert.equal(isTrustedProxyPeer('192.168.2.1', subnetSet), false);
+
+  // Peer addresses with empty or fractional octets fail closed
+  assert.equal(isTrustedProxyPeer('1..3.4', subnetSet), false);
+  assert.equal(isTrustedProxyPeer('192.168.1.5.0', subnetSet), false);
+  assert.equal(isTrustedProxyPeer('192.168.1.5x', subnetSet), false);
 });
 
 test('hasProxySignals respects isTrustedProxy boundary', () => {

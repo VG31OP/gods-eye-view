@@ -39,7 +39,8 @@ export const PROXY_SIGNALS = Object.freeze([
 
 /**
  * Parse an allowlist of trusted proxy IP addresses from a configuration string.
- * Supports comma- and space-separated IPv4, IPv6, and IPv4-mapped IPv6 addresses.
+ * Supports comma- and space-separated exact IPv4, exact IPv6, IPv4-mapped IPv6,
+ * and valid IPv4 CIDR blocks (e.g. 172.16.0.0/12). Malformed tokens fail closed.
  * @param {string} envValue e.g. process.env.GEV_TRUSTED_PROXY_IPS
  * @returns {Set<string>}
  */
@@ -51,35 +52,76 @@ export function parseTrustedProxyIps(envValue) {
     .filter(Boolean);
   const ips = new Set();
   for (const token of tokens) {
-    ips.add(token);
+    if (token.includes('/')) {
+      if (parseIpv4Cidr(token) !== null) {
+        ips.add(token);
+      }
+      continue;
+    }
     if (token.startsWith('::ffff:')) {
-      ips.add(token.slice(7));
+      const rest = token.slice(7);
+      if (ipv4ToUint32(rest) !== null) {
+        ips.add(token);
+        ips.add(rest);
+      }
+      continue;
+    }
+    if (ipv4ToUint32(token) !== null) {
+      ips.add(token);
+      continue;
+    }
+    // Strict exact IPv6 address (requires colon, hexadecimal characters only, no ':::')
+    if (
+      token.includes(':') &&
+      /^[0-9a-f:]+$/i.test(token) &&
+      !token.includes(':::')
+    ) {
+      ips.add(token);
     }
   }
   return ips;
 }
 
 function ipv4ToUint32(ip) {
-  const parts = String(ip || '')
-    .split('.')
-    .map(Number);
-  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255))
-    return null;
+  if (typeof ip !== 'string') return null;
+  const raw = ip.trim();
+  const parts = raw.split('.');
+  if (parts.length !== 4) return null;
+  const nums = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null;
+    if (part.length > 1 && part.startsWith('0')) return null;
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    nums.push(n);
+  }
   return (
-    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+    ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) >>> 0
   );
 }
 
-function matchIpv4Cidr(ip, cidr) {
-  const [base, prefixStr] = cidr.split('/');
-  const prefix = parseInt(prefixStr, 10);
-  if (isNaN(prefix) || prefix < 0 || prefix > 32) return false;
-  const ipNum = ipv4ToUint32(ip);
+function parseIpv4Cidr(cidr) {
+  if (typeof cidr !== 'string') return null;
+  const parts = cidr.trim().split('/');
+  if (parts.length !== 2) return null;
+  const [base, prefixStr] = parts;
+  if (!/^\d+$/.test(prefixStr)) return null;
+  if (prefixStr.length > 1 && prefixStr.startsWith('0')) return null;
+  const prefix = Number(prefixStr);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return null;
   const baseNum = ipv4ToUint32(base);
-  if (ipNum === null || baseNum === null) return false;
-  if (prefix === 0) return true;
-  const mask = (~0 << (32 - prefix)) >>> 0;
-  return (ipNum & mask) === (baseNum & mask);
+  if (baseNum === null) return null;
+  return { baseNum, prefix };
+}
+
+function matchIpv4Cidr(ip, cidr) {
+  const parsed = parseIpv4Cidr(cidr);
+  if (!parsed) return false;
+  const ipNum = ipv4ToUint32(ip);
+  if (ipNum === null) return false;
+  if (parsed.prefix === 0) return true;
+  const mask = (~0 << (32 - parsed.prefix)) >>> 0;
+  return (ipNum & mask) === (parsed.baseNum & mask);
 }
 
 /**
