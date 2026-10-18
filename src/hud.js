@@ -15,6 +15,7 @@ import { applicationServices } from './services/application.js';
  */
 
 import * as Cesium from 'cesium';
+import { greatCircleKm } from './geoDistance.js';
 import { forward as toMGRS } from 'mgrs';
 import { CITY_POIS } from './cityPois.js';
 import { composeLocalityTag } from './hudLocality.js';
@@ -178,9 +179,11 @@ export class IntelHUD {
       summaryPolicy = {},
       basemapContext = {},
       summaryService = applicationServices.summary,
+      wikipediaService = applicationServices.wikipedia,
     } = {},
   ) {
     this.summaryService = summaryService;
+    this.wikipediaService = wikipediaService;
     this.summaryPolicy = summaryPolicy;
     this.basemapContext = basemapContext;
     this.placeSearch = placeSearch;
@@ -683,13 +686,7 @@ export class IntelHUD {
    * @returns {number} Distance in kilometers.
    */
   _haversineKm(lat1, lon1, lat2, lon2) {
-    const toRad = (deg) => Cesium.Math.toRadians(deg);
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return greatCircleKm({ lat: lat1, lon: lon1 }, { lat: lat2, lon: lon2 });
   }
 
   /**
@@ -889,6 +886,22 @@ export class IntelHUD {
       this.placeSearch,
       this.basemapContext,
     );
+    let wikipediaArticles = [];
+    if (this._latestMetrics && this.wikipediaService?.fetchNearby) {
+      try {
+        const hits = await this.wikipediaService.fetchNearby({
+          latitude: this._latestMetrics.latDeg,
+          longitude: this._latestMetrics.lonDeg,
+          radius: 10000,
+          limit: 3,
+        });
+        if (Array.isArray(hits)) {
+          wikipediaArticles = hits.map((entry) => entry.title).filter(Boolean);
+        }
+      } catch {
+        // Non-fatal fallback
+      }
+    }
     const enabledLayers =
       this._dataManager
         ?.getAll?.()
@@ -898,6 +911,7 @@ export class IntelHUD {
       placeLabels: labels.placeLabels,
       streetLabels: labels.streetLabels,
       nearbyPlaceLabels: labels.nearbyPlaceLabels,
+      wikipediaArticles,
       enabledLayerLabels: enabledLayers,
       ...hudSummaryLayerContext(this._dataManager?.getAll?.() || []),
     };

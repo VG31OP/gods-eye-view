@@ -217,3 +217,48 @@ test('connect and disconnect events update controller state and release holds', 
   nav.destroy();
   assert.equal(Object.keys(listeners).length, 0);
 });
+
+test('Y button cycles styles starting from current active style', () => {
+  const viewer = createMockViewer();
+  const setStyles = [];
+  let currentStyle = 'surveillance';
+  const actions = {
+    getStyle: () => currentStyle,
+    setStyle: (s) => {
+      setStyles.push(s);
+      currentStyle = s;
+    },
+  };
+  const mockGamepad = {
+    index: 0,
+    axes: [0, 0, 0, 0],
+    buttons: [
+      null,
+      null,
+      null,
+      { pressed: true, value: 1 }, // Button 3: Y / Triangle
+    ],
+  };
+
+  const nav = createGamepadNavigation({
+    viewer,
+    actions,
+    navigatorRef: { getGamepads: () => [mockGamepad] },
+    holdRender: () => {},
+    releaseRender: () => {},
+  });
+
+  nav.poll(0.016);
+  // STYLES is ['normal', 'retro', 'surveillance', 'thermal', 'anime', 'noir', 'snow']
+  // If current is 'surveillance' (index 2), next should be 'thermal' (index 3)
+  assert.deepEqual(setStyles, ['thermal']);
+
+  // Next press
+  mockGamepad.buttons[3] = { pressed: false, value: 0 };
+  nav.poll(0.016);
+  mockGamepad.buttons[3] = { pressed: true, value: 1 };
+  nav.poll(0.016);
+  assert.deepEqual(setStyles, ['thermal', 'anime']);
+
+  nav.destroy();
+});

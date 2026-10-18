@@ -216,3 +216,71 @@ test('createWikipediaService binds options and exposes helpers', async () => {
   assert.equal(calls.length, 1);
   assert.ok(calls[0].includes('gscoord=10.00000%7C20.00000'));
 });
+
+test('fetchWikipediaNearby caches responses for identical coordinates and parameters', async () => {
+  let fetchCount = 0;
+  const mockFetch = async () => {
+    fetchCount++;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: {
+          geosearch: [
+            {
+              pageid: 999,
+              title: 'Cached Landmark',
+              lat: 51.5074,
+              lon: -0.1278,
+              dist: 100,
+            },
+          ],
+        },
+      }),
+    };
+  };
+
+  const first = await fetchWikipediaNearby({
+    latitude: 51.5074,
+    longitude: -0.1278,
+    radius: 5000,
+    limit: 5,
+    fetchImpl: mockFetch,
+  });
+  const second = await fetchWikipediaNearby({
+    latitude: 51.5074,
+    longitude: -0.1278,
+    radius: 5000,
+    limit: 5,
+    fetchImpl: mockFetch,
+  });
+
+  assert.equal(fetchCount, 1);
+  assert.deepEqual(first, second);
+});
+
+test('wikipedia requests throttle through maximum concurrency limit', async () => {
+  let inFlight = 0;
+  let maxConcurrentSeen = 0;
+  const mockFetch = async () => {
+    inFlight++;
+    maxConcurrentSeen = Math.max(maxConcurrentSeen, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight--;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ query: { search: [] } }),
+    };
+  };
+
+  const tasks = Array.from({ length: 10 }, (_, i) =>
+    searchWikipedia(`query_${i}`, { fetchImpl: mockFetch }),
+  );
+  await Promise.all(tasks);
+
+  assert.ok(
+    maxConcurrentSeen <= 4,
+    `Expected max 4 concurrent requests, saw ${maxConcurrentSeen}`,
+  );
+});

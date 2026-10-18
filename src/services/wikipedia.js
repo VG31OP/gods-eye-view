@@ -11,6 +11,36 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const nearbyCache = new Map();
 const summaryCache = new Map();
 
+let inFlightRequests = 0;
+const MAX_CONCURRENT_REQUESTS = 4;
+const pendingQueue = [];
+
+async function acquireRequestSlot() {
+  if (inFlightRequests < MAX_CONCURRENT_REQUESTS) {
+    inFlightRequests++;
+    return;
+  }
+  await new Promise((resolve) => pendingQueue.push(resolve));
+}
+
+function releaseRequestSlot() {
+  if (pendingQueue.length > 0) {
+    const next = pendingQueue.shift();
+    next();
+  } else {
+    inFlightRequests = Math.max(0, inFlightRequests - 1);
+  }
+}
+
+async function executeWikipediaFetch(url, options, fetchImpl) {
+  await acquireRequestSlot();
+  try {
+    return await fetchImpl(url, options);
+  } finally {
+    releaseRequestSlot();
+  }
+}
+
 function sanitizeCoordinate(value, min, max, label) {
   const num = Number(value);
   if (!Number.isFinite(num) || num < min || num > max) {
@@ -65,7 +95,7 @@ export async function fetchWikipediaNearby({
     origin: '*',
   });
 
-  const response = await fetchImpl(
+  const response = await executeWikipediaFetch(
     `https://en.wikipedia.org/w/api.php?${params}`,
     {
       signal,
@@ -74,6 +104,7 @@ export async function fetchWikipediaNearby({
         'Api-User-Agent': WIKIPEDIA_USER_AGENT,
       },
     },
+    fetchImpl,
   );
 
   if (!response.ok) {
@@ -82,9 +113,12 @@ export async function fetchWikipediaNearby({
 
   const payload = await response.json();
   const rawList = payload?.query?.geosearch;
-  if (!Array.isArray(rawList)) return [];
+  if (!Array.isArray(rawList)) {
+    nearbyCache.set(cacheKey, { data: [], timestamp: Date.now() });
+    return [];
+  }
 
-  return rawList.map((entry) => ({
+  const results = rawList.map((entry) => ({
     pageId: entry.pageid,
     title: String(entry.title || ''),
     latitude: entry.lat,
@@ -92,6 +126,8 @@ export async function fetchWikipediaNearby({
     distanceMeters: entry.dist,
     primary: entry.primary !== undefined,
   }));
+  nearbyCache.set(cacheKey, { data: results, timestamp: Date.now() });
+  return results;
 }
 
 /**
@@ -116,13 +152,17 @@ export async function fetchWikipediaSummary(
   }
 
   const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTitle.replace(/ /g, '_'))}`;
-  const response = await fetchImpl(endpoint, {
-    signal,
-    headers: {
-      Accept: 'application/json',
-      'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+  const response = await executeWikipediaFetch(
+    endpoint,
+    {
+      signal,
+      headers: {
+        Accept: 'application/json',
+        'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+      },
     },
-  });
+    fetchImpl,
+  );
 
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -177,7 +217,7 @@ export async function searchWikipedia(
     origin: '*',
   });
 
-  const response = await fetchImpl(
+  const response = await executeWikipediaFetch(
     `https://en.wikipedia.org/w/api.php?${params}`,
     {
       signal,
@@ -186,6 +226,7 @@ export async function searchWikipedia(
         'Api-User-Agent': WIKIPEDIA_USER_AGENT,
       },
     },
+    fetchImpl,
   );
 
   if (!response.ok) {

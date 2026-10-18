@@ -185,6 +185,15 @@ export const DATA_CREDITS = [
     html: 'Keyless place search: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> (komoot)',
   },
   {
+    key: 'wikipedia',
+    html:
+      'Wikipedia spatial intelligence: ' +
+      '<a href="https://en.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a> ' +
+      'text available under ' +
+      '<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>; ' +
+      'Wikipedia and Wikimedia contributors',
+  },
+  {
     key: 'open-meteo',
     html:
       'Cockpit current conditions: ' +
@@ -305,7 +314,10 @@ export const DATA_CREDITS = [
     html:
       'Bikeshare availability: GBFS operator feeds ' +
       '(e.g. Austin BCycle; Bike Share Toronto, operated by the Toronto Parking Authority; Bike Itaú and Tembici Bogotá, operated by Tembici; ' +
-      'Bicing, Barcelona City Council (B:SM); AMBici, Àrea Metropolitana de Barcelona, operated by nextbike)',
+      'Bicing, Barcelona City Council (B:SM); AMBici, Àrea Metropolitana de Barcelona, operated by nextbike; ' +
+      'BiciMAD, <a href="https://www.emtmadrid.es" target="_blank" rel="noopener">Powered by EMT de Madrid</a>; ' +
+      'Bizi Zaragoza; BIKI, AUVASA (Valladolid); BiciCoruña; Dbizi (Donostia-San Sebastián); ' +
+      'Bilbao Bizi, Bilbao City Council; BicinRivas, Rivas-Vaciamadrid City Council)',
   },
   {
     key: 'urbansharing-gbfs',
@@ -324,7 +336,7 @@ export const DATA_CREDITS = [
   {
     key: 'jcdecaux-gbfs',
     html:
-      'City bikes (Lillestrøm): Bysykkel Lillestrøm, JCDecaux — ' +
+      'City bikes (Lillestrøm, Valencia, Seville): Bysykkel Lillestrøm, Valenbisi, Sevici, JCDecaux — ' +
       '<a href="https://developer.jcdecaux.com/files/Open-Licence-fr.pdf" target="_blank" rel="noopener">Licence Ouverte</a>',
   },
   {
