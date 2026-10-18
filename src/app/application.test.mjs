@@ -512,4 +512,3 @@ test('getRequestedResolutionScale and requestedResolutionScale getter preserve u
   uninstall();
   assert.equal(viewer.requestedResolutionScale, undefined);
 });
-
