@@ -95,9 +95,7 @@ function ipv4ToUint32(ip) {
     if (!Number.isInteger(n) || n < 0 || n > 255) return null;
     nums.push(n);
   }
-  return (
-    ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) >>> 0
-  );
+  return ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) >>> 0;
 }
 
 function parseIpv4Cidr(cidr) {
