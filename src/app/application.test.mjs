@@ -7,6 +7,7 @@ import {
   clampResolutionToTextureLimits,
   installTextureLimitGuard,
   setRequestedResolutionScale,
+  getRequestedResolutionScale,
 } from './viewer.js';
 
 const phases = ['Scene', 'Controls', 'Data', 'Tools'];
@@ -472,3 +473,43 @@ test('setRequestedResolutionScale records requested scale and preserves it acros
   setRequestedResolutionScale(viewer, 1.0, { getLimit });
   assert.equal(viewer.resolutionScale, 1.0);
 });
+
+test('getRequestedResolutionScale and requestedResolutionScale getter preserve unconstrained value across save/restore (#1017)', () => {
+  const viewer = {
+    resolutionScale: 1.0,
+    canvas: { clientWidth: 2560, clientHeight: 1440 },
+  };
+  const getLimit = () => 2048;
+
+  const uninstall = installTextureLimitGuard(viewer, { getLimit });
+  // At 2560 wide, resolutionScale clamps to 0.8
+  assert.equal(viewer.resolutionScale, 2048 / 2560);
+  // Requested scale getter returns the unconstrained 1.0
+  assert.equal(getRequestedResolutionScale(viewer), 1.0);
+  assert.equal(viewer.getRequestedResolutionScale(), 1.0);
+  assert.equal(viewer.requestedResolutionScale, 1.0);
+
+  // Save / set / restore pattern:
+  const saved = viewer.requestedResolutionScale;
+  assert.equal(saved, 1.0);
+
+  // Temporarily set a lower scale (e.g. 0.5 for capture/perf)
+  viewer.requestedResolutionScale = 0.5;
+  assert.equal(viewer.resolutionScale, 0.5);
+  assert.equal(viewer.requestedResolutionScale, 0.5);
+
+  // Restore saved scale:
+  viewer.requestedResolutionScale = saved;
+  assert.equal(viewer.resolutionScale, 0.8); // Still clamped at 2560 wide
+  assert.equal(viewer.requestedResolutionScale, 1.0);
+
+  // Window shrinks to 1080p: scale cleanly restores to 1.0 rather than being stuck at 0.8
+  viewer.canvas.clientWidth = 1920;
+  viewer.canvas.clientHeight = 1080;
+  clampResolutionToTextureLimits(viewer, { getLimit });
+  assert.equal(viewer.resolutionScale, 1.0);
+
+  uninstall();
+  assert.equal(viewer.requestedResolutionScale, undefined);
+});
+

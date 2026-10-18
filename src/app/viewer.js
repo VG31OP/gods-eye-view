@@ -171,6 +171,16 @@ export function setRequestedResolutionScale(viewer, scale, options) {
 }
 
 /**
+ * Return the requested resolution scale for a viewer before GPU texture clamping,
+ * allowing save/set/restore patterns to read the unconstrained user/preset value (#905, #1017).
+ * @param {object} viewer - Cesium viewer instance
+ * @returns {number} Requested resolution scale
+ */
+export function getRequestedResolutionScale(viewer) {
+  return viewer?._requestedResolutionScale ?? viewer?.resolutionScale ?? 1.0;
+}
+
+/**
  * Install a resize and fullscreen listener that continuously guarantees the
  * drawing buffer fits within the GPU's texture size limit. Returns a disposer.
  */
@@ -190,6 +200,22 @@ export function installTextureLimitGuard(
   if (viewer && typeof viewer.setResolutionScale !== 'function') {
     viewer.setResolutionScale = (scale) =>
       setRequestedResolutionScale(viewer, scale, { getLimit, getPixelRatio });
+  }
+
+  if (viewer && typeof viewer.getRequestedResolutionScale !== 'function') {
+    viewer.getRequestedResolutionScale = () =>
+      getRequestedResolutionScale(viewer);
+  }
+
+  const hadRequestedProp = viewer && 'requestedResolutionScale' in viewer;
+  if (viewer && !hadRequestedProp) {
+    Object.defineProperty(viewer, 'requestedResolutionScale', {
+      get: () => getRequestedResolutionScale(viewer),
+      set: (scale) =>
+        setRequestedResolutionScale(viewer, scale, { getLimit, getPixelRatio }),
+      configurable: true,
+      enumerable: true,
+    });
   }
 
   let unlistenResize = null;
@@ -218,6 +244,9 @@ export function installTextureLimitGuard(
     active = false;
     unlistenResize?.();
     unlistenPreRender?.();
+    if (!hadRequestedProp && viewer) {
+      delete viewer.requestedResolutionScale;
+    }
   };
 }
 
