@@ -5,11 +5,13 @@
  */
 
 const WIKIPEDIA_USER_AGENT =
-  'GodsEyeView/1.0 (https://github.com/bilawalsidhu/gods-eye-view; contact@godseyeview.org)';
+  'GodsEyeView/1.0 (https://github.com/bilawalsidhu/gods-eye-view)';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const nearbyCache = new Map();
 const summaryCache = new Map();
+const pendingNearby = new Map();
+const pendingSummaries = new Map();
 
 let inFlightRequests = 0;
 const MAX_CONCURRENT_REQUESTS = 4;
@@ -85,6 +87,31 @@ export async function fetchWikipediaNearby({
     return cached.data;
   }
 
+  if (pendingNearby.has(cacheKey)) {
+    const existing = pendingNearby.get(cacheKey);
+    if (!signal) return existing;
+    if (signal.aborted) {
+      throw signal.reason || new DOMException('Aborted', 'AbortError');
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort);
+        reject(signal.reason || new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort);
+      existing.then(
+        (val) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(val);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
+  }
+
   const params = new URLSearchParams({
     action: 'query',
     list: 'geosearch',
@@ -95,39 +122,48 @@ export async function fetchWikipediaNearby({
     origin: '*',
   });
 
-  const response = await executeWikipediaFetch(
-    `https://en.wikipedia.org/w/api.php?${params}`,
-    {
-      signal,
-      headers: {
-        Accept: 'application/json',
-        'Api-User-Agent': WIKIPEDIA_USER_AGENT,
-      },
-    },
-    fetchImpl,
-  );
+  const fetchPromise = (async () => {
+    try {
+      const response = await executeWikipediaFetch(
+        `https://en.wikipedia.org/w/api.php?${params}`,
+        {
+          signal,
+          headers: {
+            Accept: 'application/json',
+            'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+          },
+        },
+        fetchImpl,
+      );
 
-  if (!response.ok) {
-    throw new Error(`Wikipedia geosearch unavailable (${response.status})`);
-  }
+      if (!response.ok) {
+        throw new Error(`Wikipedia geosearch unavailable (${response.status})`);
+      }
 
-  const payload = await response.json();
-  const rawList = payload?.query?.geosearch;
-  if (!Array.isArray(rawList)) {
-    nearbyCache.set(cacheKey, { data: [], timestamp: Date.now() });
-    return [];
-  }
+      const payload = await response.json();
+      const rawList = payload?.query?.geosearch;
+      if (!Array.isArray(rawList)) {
+        nearbyCache.set(cacheKey, { data: [], timestamp: Date.now() });
+        return [];
+      }
 
-  const results = rawList.map((entry) => ({
-    pageId: entry.pageid,
-    title: String(entry.title || ''),
-    latitude: entry.lat,
-    longitude: entry.lon,
-    distanceMeters: entry.dist,
-    primary: entry.primary !== undefined,
-  }));
-  nearbyCache.set(cacheKey, { data: results, timestamp: Date.now() });
-  return results;
+      const results = rawList.map((entry) => ({
+        pageId: entry.pageid,
+        title: String(entry.title || ''),
+        latitude: entry.lat,
+        longitude: entry.lon,
+        distanceMeters: entry.dist,
+        primary: entry.primary !== undefined,
+      }));
+      nearbyCache.set(cacheKey, { data: results, timestamp: Date.now() });
+      return results;
+    } finally {
+      pendingNearby.delete(cacheKey);
+    }
+  })();
+
+  pendingNearby.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 /**
@@ -151,41 +187,75 @@ export async function fetchWikipediaSummary(
     return cached.data;
   }
 
-  const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTitle.replace(/ /g, '_'))}`;
-  const response = await executeWikipediaFetch(
-    endpoint,
-    {
-      signal,
-      headers: {
-        Accept: 'application/json',
-        'Api-User-Agent': WIKIPEDIA_USER_AGENT,
-      },
-    },
-    fetchImpl,
-  );
-
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(`Wikipedia summary unavailable (${response.status})`);
+  if (pendingSummaries.has(cacheKey)) {
+    const existing = pendingSummaries.get(cacheKey);
+    if (!signal) return existing;
+    if (signal.aborted) {
+      throw signal.reason || new DOMException('Aborted', 'AbortError');
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort);
+        reject(signal.reason || new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort);
+      existing.then(
+        (val) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(val);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
   }
 
-  const data = await response.json();
-  const summary = {
-    pageId: data.pageid ?? null,
-    title: data.title || cleanTitle,
-    displayTitle: data.displaytitle || cleanTitle,
-    description: data.description || '',
-    extract: data.extract || '',
-    thumbnail: data.thumbnail?.source || null,
-    pageUrl:
-      data.content_urls?.desktop?.page ||
-      `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`,
-    coordinates: data.coordinates
-      ? { latitude: data.coordinates.lat, longitude: data.coordinates.lon }
-      : null,
-  };
-  summaryCache.set(cacheKey, { data: summary, timestamp: Date.now() });
-  return summary;
+  const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTitle.replace(/ /g, '_'))}`;
+  const fetchPromise = (async () => {
+    try {
+      const response = await executeWikipediaFetch(
+        endpoint,
+        {
+          signal,
+          headers: {
+            Accept: 'application/json',
+            'Api-User-Agent': WIKIPEDIA_USER_AGENT,
+          },
+        },
+        fetchImpl,
+      );
+
+      if (response.status === 404) return null;
+      if (!response.ok) {
+        throw new Error(`Wikipedia summary unavailable (${response.status})`);
+      }
+
+      const data = await response.json();
+      const summary = {
+        pageId: data.pageid ?? null,
+        title: data.title || cleanTitle,
+        displayTitle: data.displaytitle || cleanTitle,
+        description: data.description || '',
+        extract: data.extract || '',
+        thumbnail: data.thumbnail?.source || null,
+        pageUrl:
+          data.content_urls?.desktop?.page ||
+          `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`,
+        coordinates: data.coordinates
+          ? { latitude: data.coordinates.lat, longitude: data.coordinates.lon }
+          : null,
+      };
+      summaryCache.set(cacheKey, { data: summary, timestamp: Date.now() });
+      return summary;
+    } finally {
+      pendingSummaries.delete(cacheKey);
+    }
+  })();
+
+  pendingSummaries.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 /**
@@ -326,30 +396,40 @@ export function createWikipediaService({
   fetchImpl = fetch,
   signal: lifetimeSignal,
 } = {}) {
+  const resolveSignal = (optionsSignal) => {
+    if (optionsSignal && lifetimeSignal) {
+      if (typeof AbortSignal?.any === 'function') {
+        return AbortSignal.any([lifetimeSignal, optionsSignal]);
+      }
+      return optionsSignal;
+    }
+    return optionsSignal || lifetimeSignal;
+  };
+
   return {
     fetchNearby: (options = {}) =>
       fetchWikipediaNearby({
         fetchImpl,
-        signal: lifetimeSignal,
         ...options,
+        signal: resolveSignal(options.signal),
       }),
     fetchSummary: (title, options = {}) =>
       fetchWikipediaSummary(title, {
         fetchImpl,
-        signal: lifetimeSignal,
         ...options,
+        signal: resolveSignal(options.signal),
       }),
     search: (query, options = {}) =>
       searchWikipedia(query, {
         fetchImpl,
-        signal: lifetimeSignal,
         ...options,
+        signal: resolveSignal(options.signal),
       }),
     fetchBrief: (options = {}) =>
       fetchWikipediaBrief({
         fetchImpl,
-        signal: lifetimeSignal,
         ...options,
+        signal: resolveSignal(options.signal),
       }),
   };
 }

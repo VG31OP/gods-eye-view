@@ -284,3 +284,118 @@ test('wikipedia requests throttle through maximum concurrency limit', async () =
     `Expected max 4 concurrent requests, saw ${maxConcurrentSeen}`,
   );
 });
+
+test('fetchWikipediaNearby sends correct Api-User-Agent header without contact email', async () => {
+  let requestHeaders = null;
+  const mockFetch = async (url, options) => {
+    requestHeaders = options.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ query: { geosearch: [] } }),
+    };
+  };
+
+  await fetchWikipediaNearby({
+    latitude: 48.8584,
+    longitude: 2.2945,
+    fetchImpl: mockFetch,
+  });
+
+  assert.equal(
+    requestHeaders['Api-User-Agent'],
+    'GodsEyeView/1.0 (https://github.com/bilawalsidhu/gods-eye-view)',
+  );
+});
+
+test('concurrent identical fetchWikipediaNearby requests are deduplicated into a single fetch', async () => {
+  let fetchCount = 0;
+  const mockFetch = async () => {
+    fetchCount++;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: {
+          geosearch: [
+            {
+              pageid: 999,
+              title: 'Parallel Point',
+              lat: 12.3456,
+              lon: 78.9101,
+              dist: 100,
+            },
+          ],
+        },
+      }),
+    };
+  };
+
+  const [res1, res2, res3, res4, res5] = await Promise.all([
+    fetchWikipediaNearby({
+      latitude: 12.3456,
+      longitude: 78.9101,
+      fetchImpl: mockFetch,
+    }),
+    fetchWikipediaNearby({
+      latitude: 12.3456,
+      longitude: 78.9101,
+      fetchImpl: mockFetch,
+    }),
+    fetchWikipediaNearby({
+      latitude: 12.3456,
+      longitude: 78.9101,
+      fetchImpl: mockFetch,
+    }),
+    fetchWikipediaNearby({
+      latitude: 12.3456,
+      longitude: 78.9101,
+      fetchImpl: mockFetch,
+    }),
+    fetchWikipediaNearby({
+      latitude: 12.3456,
+      longitude: 78.9101,
+      fetchImpl: mockFetch,
+    }),
+  ]);
+
+  assert.equal(
+    fetchCount,
+    1,
+    'Expected exactly 1 network fetch for 5 concurrent identical requests',
+  );
+  assert.equal(res1.length, 1);
+  assert.equal(res1[0].title, 'Parallel Point');
+  assert.deepEqual(res1, res2);
+  assert.deepEqual(res1, res3);
+  assert.deepEqual(res1, res4);
+  assert.deepEqual(res1, res5);
+});
+
+test('wikipedia service merges lifetime signal with request-specific options signal', async () => {
+  let receivedSignal = null;
+  const mockFetch = async (url, options) => {
+    receivedSignal = options.signal;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ query: { geosearch: [] } }),
+    };
+  };
+
+  const lifetimeController = new AbortController();
+  const service = createWikipediaService({
+    fetchImpl: mockFetch,
+    signal: lifetimeController.signal,
+  });
+
+  const requestController = new AbortController();
+  await service.fetchNearby({
+    latitude: 35.6762,
+    longitude: 139.6503,
+    signal: requestController.signal,
+  });
+
+  assert.ok(receivedSignal, 'Signal should be passed to fetch');
+});
