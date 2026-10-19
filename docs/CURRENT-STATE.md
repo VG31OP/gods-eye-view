@@ -3,7 +3,10 @@
 The standard application viewer (`src/app/viewer.js`) clamps `viewer.resolutionScale`
 to the WebGL hardware limit (`Cesium.ContextLimits.maximumTextureSize`) on high-resolution
 displays, keeping drawing buffer dimensions within bounds for framebuffer depth/color
-textures and restoring requested scaling when the window shrinks.
+textures and restoring requested scaling when the window shrinks. Code that
+changes the scale (presets, battery saver) should read and set
+`viewer.requestedResolutionScale`, the value before clamping; saving and
+restoring `viewer.resolutionScale` captures the clamped value instead.
 
 Shared distance checks use `src/geoDistance.js` with `{ lat, lon }` points and
 the IUGG mean spherical Earth radius, 6371.0088 km. `greatCircleKm` is
@@ -19,7 +22,6 @@ approximations. Four great-circle copies remain for a follow-up:
 across the antimeridian, so they cannot use the strict ±180 check as-is, and
 `src/sources/adsbRecords.js` and `server/providers/common/geo.js` keep their own
 implementations.
-
 
 Vessel sources can report healthy empty coverage using a current, complete
 snapshot with zero raw rows, a healthy transport and a positive last-message
